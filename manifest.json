@@ -4,7 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "自动将拖入笔记的文件上传至 WebDAV 服务器并创建链接。",
-	"author": "Antigravity",
-	"authorUrl": "https://github.com/yourname/obsidian-webdav-uploader",
+	"author": "wenrouXN",
+	"authorUrl": "https://github.com/wenrouXN/obsidian-webdav-uploader",
 	"isDesktopOnly": true
 }
