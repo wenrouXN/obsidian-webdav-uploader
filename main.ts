@@ -213,7 +213,7 @@ export default class WebDAVUploaderPlugin extends Plugin {
                         // 文件不在同步目录 -> 插入本地链接，不上传
                         isLocalLink = true;
                         shouldUpload = false;
-                        new Notice(`文件不在同步目录内，已插入本地链接`);
+                        // Notice 将在用户确认后显示
                     }
                 } else {
                     // 未配置同步目录，回退到映射检查 (兼容这是原本的 calculateRemotePath 逻辑的一部分，但通常 local 模式主要用同步目录)
@@ -262,6 +262,7 @@ export default class WebDAVUploaderPlugin extends Plugin {
                 const editor = view.editor;
                 // 使用用户确认的名称
                 editor.replaceSelection(`[${linkTextName}](file:///${encodeURI(normalizedFilePath)})\n`);
+                new Notice(`文件不在同步目录内，已插入本地链接`);
                 return;
             }
 
