@@ -1,6 +1,6 @@
 {
     "name": "obsidian-webdav-uploader",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Obsidian WebDAV Uploader Plugin",
     "main": "main.js",
     "scripts": {
