@@ -159,8 +159,23 @@ export default class WebDAVUploaderPlugin extends Plugin {
             const activeFile = view.file;
             if (!activeFile) return;
 
-            // 获取文件的本地路径 (来自 File 对象的 path 属性)
-            const filePath = (file as any).path || '';
+            // 获取文件的本地路径
+            // 使用 Electron webUtils API (Electron 14+) 或 File.path (旧版)
+            let filePath = '';
+            try {
+                const { webUtils } = require('electron');
+                if (webUtils && webUtils.getPathForFile) {
+                    filePath = webUtils.getPathForFile(file);
+                }
+            } catch (e) {
+                // webUtils 不可用，尝试 fallback
+            }
+
+            // Fallback to File.path
+            if (!filePath) {
+                filePath = (file as any).path || '';
+            }
+
             const normalizedFilePath = filePath.replace(/\\/g, '/');
 
             let remoteFilePath: string = '';
@@ -170,7 +185,6 @@ export default class WebDAVUploaderPlugin extends Plugin {
             // 根据模式处理
             if (this.settings.pathMode === 'local') {
                 // ===== 文件路径模式 =====
-                console.log('[WebDAV Debug] pathMode=local, filePath=', filePath, ', localSyncFolder=', this.settings.localSyncFolder, ', remoteSyncFolder=', this.settings.remoteSyncFolder);
                 if (this.settings.localSyncFolder && this.settings.remoteSyncFolder && filePath) {
                     // 标准化并统一转小写进行比较 (Windows)
                     const normalizedLocalSync = this.settings.localSyncFolder
