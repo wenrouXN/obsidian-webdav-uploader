@@ -102,6 +102,15 @@ export function createWebDAVImageExtension(plugin: WebDAVPlugin) {
         }
 
         buildDecorations(view: EditorView): DecorationSet {
+            // 检查是否启用了 Live Preview
+            // 查找包含编辑器内容的容器，检查是否有 'is-live-preview' 类
+            const sourceView = view.dom.closest('.markdown-source-view');
+            const isLivePreview = sourceView?.classList.contains('is-live-preview');
+
+            if (!isLivePreview) {
+                return Decoration.none;
+            }
+
             const builder = new RangeSetBuilder<Decoration>();
             // 获取 WebDAV 基础路径
             const webdavBase = plugin.settings.webdavUrl.replace(/\/$/, '');
