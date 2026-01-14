@@ -78,6 +78,44 @@ export default class WebDAVUploaderPlugin extends Plugin {
         this.register(() => {
             document.removeEventListener('drop', dropHandler, true);
         });
+
+        // 注册 Markdown 后处理器，用于渲染 WebDAV 图片
+        this.registerMarkdownPostProcessor(async (element, context) => {
+            // 查找所有图片元素
+            const images = element.querySelectorAll('img');
+
+            for (const img of Array.from(images)) {
+                const src = img.getAttribute('src');
+                if (!src) continue;
+
+                // 检查是否是 WebDAV URL (匹配配置的 webdavUrl)
+                const webdavBase = this.settings.webdavUrl.replace(/\/$/, '');
+                if (src.startsWith(webdavBase) || src.startsWith(webdavBase.replace('https://', 'http://'))) {
+                    try {
+                        // 使用认证获取图片
+                        const auth = btoa(`${this.settings.username}:${this.settings.password}`);
+                        const response = await requestUrl({
+                            url: src,
+                            method: 'GET',
+                            headers: {
+                                'Authorization': `Basic ${auth}`
+                            }
+                        });
+
+                        // 转换为 base64 并替换 src
+                        const blob = new Blob([response.arrayBuffer], { type: response.headers['content-type'] || 'image/png' });
+                        const reader = new FileReader();
+                        reader.onloadend = () => {
+                            img.setAttribute('src', reader.result as string);
+                        };
+                        reader.readAsDataURL(blob);
+                    } catch (e) {
+                        console.error('[WebDAV Uploader] Failed to load image:', src, e);
+                        // 保留原始 src，显示 broken image
+                    }
+                }
+            }
+        });
     }
 
     onunload() {
@@ -287,8 +325,16 @@ export default class WebDAVUploaderPlugin extends Plugin {
                 // 转义路径中的特殊字符
                 const encodedPath = cleanRemoteFilePath.split('/').map(encodeURIComponent).join('/');
                 const linkUrl = `${baseUrl}${encodedPath}`;
-                // 使用用户确认的名称
-                const linkText = `[${linkTextName}](${linkUrl})`;
+
+                // 检查是否是图片类型，使用图片语法
+                const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico'];
+                const fileExt = path.extname(file.name).toLowerCase();
+                const isImage = imageExtensions.includes(fileExt);
+
+                // 使用用户确认的名称，图片使用 ![](url) 语法，其他使用 [](url) 语法
+                const linkText = isImage
+                    ? `![${linkTextName}](${linkUrl})`
+                    : `[${linkTextName}](${linkUrl})`;
 
                 const editor = view.editor;
                 editor.replaceSelection(linkText + '\n');
