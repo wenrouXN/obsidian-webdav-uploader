@@ -42,9 +42,13 @@ export default class WebDAVUploaderPlugin extends Plugin {
 
         this.addSettingTab(new WebDAVUploaderSettingTab(this.app, this));
 
-        this.addSettingTab(new WebDAVUploaderSettingTab(this.app, this));
+        // 使用捕获阶段的 document drop 事件来拦截文件拖拽
+        // 这样可以保留 File.path 属性（Electron 特有），同时先于 Obsidian 处理
+        const dropHandler = async (evt: DragEvent) => {
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            if (!view) return;
 
-        this.registerEvent(this.app.workspace.on('editor-drop', async (evt: DragEvent, editor: Editor, view: MarkdownView) => {
+            // 检查是否拖入了文件
             if (evt.dataTransfer?.files && evt.dataTransfer.files.length > 0) {
                 // Wait for user configuration check
                 if (!this.settings.webdavUrl || !this.settings.username || !this.settings.password) {
@@ -52,11 +56,12 @@ export default class WebDAVUploaderPlugin extends Plugin {
                     return;
                 }
 
-                this.initializeClient();
-
-                // Prevent default to stop Obsidian from embedding the file immediately
+                // 在捕获阶段阻止事件传播，防止 Obsidian 默认处理
                 evt.preventDefault();
                 evt.stopPropagation();
+                evt.stopImmediatePropagation();
+
+                this.initializeClient();
 
                 const files = evt.dataTransfer.files;
                 for (let i = 0; i < files.length; i++) {
@@ -64,7 +69,15 @@ export default class WebDAVUploaderPlugin extends Plugin {
                     await this.uploadFile(file, view);
                 }
             }
-        }));
+        };
+
+        // 在捕获阶段监听，确保先于 Obsidian 内部处理
+        document.addEventListener('drop', dropHandler, true);
+
+        // 注册卸载时移除监听器
+        this.register(() => {
+            document.removeEventListener('drop', dropHandler, true);
+        });
     }
 
     onunload() {
@@ -157,6 +170,7 @@ export default class WebDAVUploaderPlugin extends Plugin {
             // 根据模式处理
             if (this.settings.pathMode === 'local') {
                 // ===== 文件路径模式 =====
+                console.log('[WebDAV Debug] pathMode=local, filePath=', filePath, ', localSyncFolder=', this.settings.localSyncFolder, ', remoteSyncFolder=', this.settings.remoteSyncFolder);
                 if (this.settings.localSyncFolder && this.settings.remoteSyncFolder && filePath) {
                     // 标准化并统一转小写进行比较 (Windows)
                     const normalizedLocalSync = this.settings.localSyncFolder
