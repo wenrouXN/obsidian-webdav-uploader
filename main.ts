@@ -180,12 +180,7 @@ export default class WebDAVUploaderPlugin extends Plugin {
                         const remoteBase = this.settings.remoteSyncFolder.replace(/\/$/, '');
                         remoteFilePath = path.posix.join(remoteBase, relativePath);
                         if (!remoteFilePath.startsWith('/')) remoteFilePath = '/' + remoteFilePath;
-
-                        // 检查远程文件是否存在
-                        if (this.settings.preferExistingLink && await this.webdavExists(remoteFilePath)) {
-                            new Notice(`文件已存在于云端: ${file.name}`);
-                            shouldUpload = false;
-                        }
+                        // 存在性检查将在路径计算完成后统一进行
                     } else {
                         // 文件不在同步目录 -> 插入本地链接，不上传
                         isLocalLink = true;
@@ -201,6 +196,15 @@ export default class WebDAVUploaderPlugin extends Plugin {
             } else {
                 // ===== 笔记路径模式 =====
                 remoteFilePath = await this.calculateRemotePath(file, activeFile, filePath);
+            }
+
+            // ===== 统一的文件存在性检查 =====
+            // 如果启用了 preferExistingLink 且有有效的远程路径，检查文件是否已存在
+            if (shouldUpload && remoteFilePath && this.settings.preferExistingLink) {
+                if (await this.webdavExists(remoteFilePath)) {
+                    new Notice(`文件已存在于云端: ${file.name}`);
+                    shouldUpload = false;
+                }
             }
 
             // 生成并插入链接逻辑中的名称准备
