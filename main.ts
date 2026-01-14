@@ -155,42 +155,75 @@ export default class WebDAVUploaderPlugin extends Plugin {
 
             // 获取文件的本地路径 (来自 File 对象的 path 属性)
             const filePath = (file as any).path || '';
+            const normalizedFilePath = filePath.replace(/\\/g, '/');
 
-            let remoteFilePath: string;
+            let remoteFilePath: string = '';
             let shouldUpload = true;
+            let isLocalLink = false;
 
-            // 第一步：检查文件是否在本地同步目录内
-            if (this.settings.localSyncFolder && this.settings.remoteSyncFolder && filePath) {
-                const normalizedLocalSync = this.settings.localSyncFolder.replace(/[\\\/]+$/, '').replace(/\\/g, '/');
-                const normalizedFilePath = filePath.replace(/\\/g, '/');
+            // 根据模式处理
+            if (this.settings.pathMode === 'local') {
+                // ===== 文件路径模式 =====
+                if (this.settings.localSyncFolder && this.settings.remoteSyncFolder && filePath) {
+                    // 标准化并统一转小写进行比较 (Windows)
+                    const normalizedLocalSync = this.settings.localSyncFolder
+                        .replace(/[\\\/]+$/, '')
+                        .replace(/\\/g, '/')
+                        .toLowerCase();
+                    const lowerFilePath = normalizedFilePath.toLowerCase();
 
-                // 检查文件是否在同步目录内
-                if (normalizedFilePath.startsWith(normalizedLocalSync)) {
-                    // 计算文件在同步目录内的相对路径
-                    let relativePath = normalizedFilePath.slice(normalizedLocalSync.length);
-                    relativePath = relativePath.replace(/^[\/\\]/, '');
+                    // 检查文件是否在同步目录内
+                    if (lowerFilePath.startsWith(normalizedLocalSync)) {
+                        // 计算文件在同步目录内的相对路径 (保留原始大小写用于路径)
+                        // 注意：我们需要从原始 normalizedFilePath 中截取，长度需基于原始配置，但由于大小写问题，长度可能不一致？
+                        // 最好是用 slice，因为我们确认 startsWith 了。
+                        // 我们需要知道 localSyncFolder 的长度。这里假设长度是一致的。
+                        const syncFolderLength = this.settings.localSyncFolder.replace(/[\\\/]+$/, '').length;
+                        // 为了安全，重新标准化一次原始配置不做小写转换来获取长度？或者直接搜索索引
+                        // 简单做法：
+                        const relativePath = normalizedFilePath.slice(this.settings.localSyncFolder.replace(/[\\\/]+$/, '').length).replace(/^[\/\\]/, '');
 
-                    // 计算远程路径
-                    const remoteBase = this.settings.remoteSyncFolder.replace(/\/$/, '');
-                    remoteFilePath = path.posix.join(remoteBase, relativePath);
-                    if (!remoteFilePath.startsWith('/')) remoteFilePath = '/' + remoteFilePath;
+                        // 计算远程路径
+                        const remoteBase = this.settings.remoteSyncFolder.replace(/\/$/, '');
+                        remoteFilePath = path.posix.join(remoteBase, relativePath);
+                        if (!remoteFilePath.startsWith('/')) remoteFilePath = '/' + remoteFilePath;
 
-                    // 检查远程文件是否存在
-                    if (this.settings.preferExistingLink && await this.webdavExists(remoteFilePath)) {
-                        new Notice(`文件已存在于云端: ${file.name}`);
+                        // 检查远程文件是否存在
+                        if (this.settings.preferExistingLink && await this.webdavExists(remoteFilePath)) {
+                            new Notice(`文件已存在于云端: ${file.name}`);
+                            shouldUpload = false;
+                        }
+                    } else {
+                        // 文件不在同步目录 -> 插入本地链接，不上传
+                        isLocalLink = true;
                         shouldUpload = false;
+                        new Notice(`文件不在同步目录内，已插入本地链接`);
                     }
                 } else {
-                    // 文件不在同步目录，按正常流程处理
+                    // 未配置同步目录，回退到映射检查 (兼容这是原本的 calculateRemotePath 逻辑的一部分，但通常 local 模式主要用同步目录)
+                    // 如果用户只用映射而没用同步目录？
+                    // 以前的逻辑是 calculateRemotePath 会处理 local 模式的映射
                     remoteFilePath = await this.calculateRemotePath(file, activeFile, filePath);
                 }
             } else {
-                // 未配置同步目录，按正常流程处理
+                // ===== 笔记路径模式 =====
                 remoteFilePath = await this.calculateRemotePath(file, activeFile, filePath);
             }
 
-            // 第二步：上传文件（如果需要）
-            if (shouldUpload) {
+            // 执行操作
+            if (isLocalLink) {
+                // 插入本地文件链接
+                const editor = view.editor;
+                const fileUrl = 'file:///' + normalizedFilePath; // 简单处理，或者用 Obsidian 的 file path 格式
+                // 更好的方式是使用 Obsidian 的链接格式，或者 file:///
+                // 这里使用 file:/// 用于外部文件，或者 <file path>
+                // 如果是 file link： [name](file:///path)
+                editor.replaceSelection(`[${file.name}](file:///${encodeURI(normalizedFilePath)})\n`);
+                return;
+            }
+
+            // 上传处理
+            if (shouldUpload && remoteFilePath) {
                 // 确保远程文件夹存在
                 const remoteFolder = path.posix.dirname(remoteFilePath);
                 if (!await this.webdavExists(remoteFolder)) {
@@ -203,14 +236,18 @@ export default class WebDAVUploaderPlugin extends Plugin {
                 new Notice(`上传成功: ${file.name}`);
             }
 
-            // 第三步：生成并插入链接
-            const baseUrl = this.settings.webdavUrl.endsWith('/') ? this.settings.webdavUrl.slice(0, -1) : this.settings.webdavUrl;
-            const cleanRemoteFilePath = remoteFilePath.startsWith('/') ? remoteFilePath : '/' + remoteFilePath;
-            const linkUrl = `${baseUrl}${cleanRemoteFilePath}`;
-            const linkText = `[${file.name}](${linkUrl})`;
+            // 生成并插入 WebDAV 链接 (如果上传了或者跳过上传但仍是 WebDAV 链接)
+            if (remoteFilePath) {
+                const baseUrl = this.settings.webdavUrl.endsWith('/') ? this.settings.webdavUrl.slice(0, -1) : this.settings.webdavUrl;
+                const cleanRemoteFilePath = remoteFilePath.startsWith('/') ? remoteFilePath : '/' + remoteFilePath;
+                // 转义路径中的特殊字符
+                const encodedPath = cleanRemoteFilePath.split('/').map(encodeURIComponent).join('/');
+                const linkUrl = `${baseUrl}${encodedPath}`;
+                const linkText = `[${file.name}](${linkUrl})`;
 
-            const editor = view.editor;
-            editor.replaceSelection(linkText + '\n');
+                const editor = view.editor;
+                editor.replaceSelection(linkText + '\n');
+            }
 
         } catch (error) {
             console.error('WebDAV Upload Error:', error);
