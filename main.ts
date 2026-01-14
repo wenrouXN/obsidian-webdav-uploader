@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS: WebDAVUploaderSettings = {
     enableRenameModal: true
 }
 
+import { createWebDAVImageExtension } from './webdav-image-extension';
+
 export default class WebDAVUploaderPlugin extends Plugin {
     settings: WebDAVUploaderSettings;
 
@@ -41,6 +43,9 @@ export default class WebDAVUploaderPlugin extends Plugin {
         await this.loadSettings();
 
         this.addSettingTab(new WebDAVUploaderSettingTab(this.app, this));
+
+        // 注册 Live Preview (CodeMirror) 扩展
+        this.registerEditorExtension(createWebDAVImageExtension(this));
 
         // 使用捕获阶段的 document drop 事件来拦截文件拖拽
         // 这样可以保留 File.path 属性（Electron 特有），同时先于 Obsidian 处理
