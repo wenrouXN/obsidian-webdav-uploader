@@ -644,7 +644,9 @@ class WebDAVUploaderSettingTab extends PluginSettingTab {
                                     calculationMethod = `✅ 匹配到本地同步文件夹 (${this.plugin.settings.localSyncFolder})`;
                                 } else {
                                     // 文件不在同步目录内 -> 插入本地链接
-                                    calculationMethod = `📂 不在同步目录内，将插入本地文件链接\n(文件: ${normalizedFilePath}\n不匹配: ${normalizedSync})`;
+                                    calculationMethod = `📂 不在同步目录内，将插入本地文件链接
+文件路径: ${normalizedFilePath}
+配置的同步目录: ${normalizedSync}`;
                                     isLocalLink = true;
                                 }
                             }
