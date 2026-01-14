@@ -628,18 +628,23 @@ class WebDAVUploaderSettingTab extends PluginSettingTab {
                                 calculationMethod = '⚠️ 未配置本地同步文件夹';
                                 isLocalLink = true;
                             } else {
-                                const normalizedSync = this.plugin.settings.localSyncFolder.replace(/\\/g, '/').replace(/\/$/, '');
+                                // 标准化路径：统一使用正斜杠，转小写（Windows不区分大小写）
+                                const normalizedSync = this.plugin.settings.localSyncFolder
+                                    .replace(/\\/g, '/')
+                                    .replace(/\/$/, '')
+                                    .toLowerCase();
+                                const normalizedFilePath = normalizedPath.toLowerCase();
 
-                                if (normalizedPath.startsWith(normalizedSync)) {
+                                if (normalizedFilePath.startsWith(normalizedSync)) {
                                     // 文件在同步目录内
-                                    const relativePath = normalizedPath.slice(normalizedSync.length).replace(/^\//, '');
+                                    const relativePath = normalizedPath.slice(this.plugin.settings.localSyncFolder.length).replace(/^[\/\\]/, '');
                                     const remoteBase = this.plugin.settings.remoteSyncFolder.replace(/\/$/, '');
-                                    remotePath = `${remoteBase}/${relativePath}`.replace(/\/+/g, '/');
+                                    remotePath = `${remoteBase}/${relativePath}`.replace(/\\/g, '/').replace(/\/+/g, '/');
                                     if (!remotePath.startsWith('/')) remotePath = '/' + remotePath;
-                                    calculationMethod = '✅ 匹配到本地同步文件夹';
+                                    calculationMethod = `✅ 匹配到本地同步文件夹 (${this.plugin.settings.localSyncFolder})`;
                                 } else {
                                     // 文件不在同步目录内 -> 插入本地链接
-                                    calculationMethod = '📂 不在同步目录内，将插入本地文件链接';
+                                    calculationMethod = `📂 不在同步目录内，将插入本地文件链接\n(文件: ${normalizedFilePath}\n不匹配: ${normalizedSync})`;
                                     isLocalLink = true;
                                 }
                             }
