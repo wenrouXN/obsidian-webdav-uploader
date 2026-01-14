@@ -42,20 +42,10 @@ export default class WebDAVUploaderPlugin extends Plugin {
 
         this.addSettingTab(new WebDAVUploaderSettingTab(this.app, this));
 
-        this.registerDomEvent(document, 'drop', async (evt: DragEvent) => {
-            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-            if (!view) return;
+        this.addSettingTab(new WebDAVUploaderSettingTab(this.app, this));
 
+        this.registerEvent(this.app.workspace.on('editor-drop', async (evt: DragEvent, editor: Editor, view: MarkdownView) => {
             if (evt.dataTransfer?.files && evt.dataTransfer.files.length > 0) {
-                // Prevent default to stop Obsidian from embedding the file immediately
-                // Note: Obsidian's default drag-drop might need more aggressive prevention
-                // or we just handle it and let Obsidian do its thing too?
-                // User wants "drag local file/folder... automatic upload... create hyperlink"
-                // If we listen to 'drop', we can intercept.
-
-                // We need to check if the drop happened inside the editor.
-                // For simplicity, we assume if it's on the document and a MarkdownView is active.
-
                 // Wait for user configuration check
                 if (!this.settings.webdavUrl || !this.settings.username || !this.settings.password) {
                     new Notice('WebDAV 未配置，无法上传。请检查设置。');
@@ -64,6 +54,7 @@ export default class WebDAVUploaderPlugin extends Plugin {
 
                 this.initializeClient();
 
+                // Prevent default to stop Obsidian from embedding the file immediately
                 evt.preventDefault();
                 evt.stopPropagation();
 
@@ -73,7 +64,7 @@ export default class WebDAVUploaderPlugin extends Plugin {
                     await this.uploadFile(file, view);
                 }
             }
-        });
+        }));
     }
 
     onunload() {
