@@ -79,20 +79,17 @@ export default class WebDAVUploaderPlugin extends Plugin {
             document.removeEventListener('drop', dropHandler, true);
         });
 
-        // 注册 Markdown 后处理器，用于渲染 WebDAV 图片
+        // 注册 Markdown 后处理器，用于渲染 WebDAV 图片（阅读视图）
         this.registerMarkdownPostProcessor(async (element, context) => {
-            // 查找所有图片元素
             const images = element.querySelectorAll('img');
 
             for (const img of Array.from(images)) {
                 const src = img.getAttribute('src');
                 if (!src) continue;
 
-                // 检查是否是 WebDAV URL (匹配配置的 webdavUrl)
                 const webdavBase = this.settings.webdavUrl.replace(/\/$/, '');
                 if (src.startsWith(webdavBase) || src.startsWith(webdavBase.replace('https://', 'http://'))) {
                     try {
-                        // 使用认证获取图片
                         const auth = btoa(`${this.settings.username}:${this.settings.password}`);
                         const response = await requestUrl({
                             url: src,
@@ -102,7 +99,6 @@ export default class WebDAVUploaderPlugin extends Plugin {
                             }
                         });
 
-                        // 转换为 base64 并替换 src
                         const blob = new Blob([response.arrayBuffer], { type: response.headers['content-type'] || 'image/png' });
                         const reader = new FileReader();
                         reader.onloadend = () => {
@@ -111,11 +107,62 @@ export default class WebDAVUploaderPlugin extends Plugin {
                         reader.readAsDataURL(blob);
                     } catch (e) {
                         console.error('[WebDAV Uploader] Failed to load image:', src, e);
-                        // 保留原始 src，显示 broken image
                     }
                 }
             }
         });
+
+        // 备用方案：监听布局变化来处理图片
+        this.registerEvent(this.app.workspace.on('layout-change', () => {
+            this.processWebDAVImages();
+        }));
+
+        // 监听活动叶子变化
+        this.registerEvent(this.app.workspace.on('active-leaf-change', () => {
+            setTimeout(() => this.processWebDAVImages(), 100);
+        }));
+    }
+
+    // 处理 WebDAV 图片的方法（阅读视图）
+    async processWebDAVImages() {
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!activeView) return;
+
+        const previewEl = activeView.previewMode?.containerEl;
+        if (!previewEl) return;
+
+        const images = previewEl.querySelectorAll('img');
+
+        for (const img of Array.from(images)) {
+            const src = img.getAttribute('src');
+            if (!src) continue;
+
+            // 跳过已处理的图片
+            if (src.startsWith('data:')) continue;
+
+            const webdavBase = this.settings.webdavUrl.replace(/\/$/, '');
+            if (src.startsWith(webdavBase)) {
+                try {
+                    const auth = btoa(`${this.settings.username}:${this.settings.password}`);
+                    const response = await requestUrl({
+                        url: src,
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Basic ${auth}`
+                        }
+                    });
+
+                    const blob = new Blob([response.arrayBuffer], { type: response.headers['content-type'] || 'image/png' });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        img.setAttribute('src', reader.result as string);
+                    };
+                    reader.readAsDataURL(blob);
+                } catch (e) {
+                    console.error('[WebDAV Uploader] Failed to load image:', src, e);
+                }
+            }
+        }
     }
 
     onunload() {
