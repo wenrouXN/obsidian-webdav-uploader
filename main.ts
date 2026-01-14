@@ -18,6 +18,7 @@ interface WebDAVUploaderSettings {
     remoteSyncFolder: string; // 对应的 WebDAV 远程路径
     pathMode: 'note' | 'local'; // 路径决定模式：note=笔记路径，local=文件本地路径
     preferExistingLink: boolean; // 如果文件已存在于云端，优先插入链接而不上传
+    enableRenameModal: boolean; // 拖拽时是否弹出重命名确认窗口
 }
 
 const DEFAULT_SETTINGS: WebDAVUploaderSettings = {
@@ -29,7 +30,8 @@ const DEFAULT_SETTINGS: WebDAVUploaderSettings = {
     localSyncFolder: '',
     remoteSyncFolder: '',
     pathMode: 'note',
-    preferExistingLink: true
+    preferExistingLink: true,
+    enableRenameModal: true
 }
 
 export default class WebDAVUploaderPlugin extends Plugin {
@@ -210,15 +212,33 @@ export default class WebDAVUploaderPlugin extends Plugin {
                 remoteFilePath = await this.calculateRemotePath(file, activeFile, filePath);
             }
 
+            // 生成并插入链接逻辑中的名称准备
+            let linkTextName = file.name;
+
+            // 如果开启了重命名确认 Modal，则在此处弹出
+            if (this.settings.enableRenameModal) {
+                // 使用 Promise 等待 Modal 结果
+                const userConfirmedName = await new Promise<string | null>((resolve) => {
+                    new RenameModal(this.app, file.name, (result) => {
+                        resolve(result);
+                    }, () => {
+                        resolve(null); // Cancelled
+                    }).open();
+                });
+
+                if (userConfirmedName === null) {
+                    new Notice('操作已取消');
+                    return; // 用户取消，终止整个流程
+                }
+                linkTextName = userConfirmedName;
+            }
+
             // 执行操作
             if (isLocalLink) {
                 // 插入本地文件链接
                 const editor = view.editor;
-                const fileUrl = 'file:///' + normalizedFilePath; // 简单处理，或者用 Obsidian 的 file path 格式
-                // 更好的方式是使用 Obsidian 的链接格式，或者 file:///
-                // 这里使用 file:/// 用于外部文件，或者 <file path>
-                // 如果是 file link： [name](file:///path)
-                editor.replaceSelection(`[${file.name}](file:///${encodeURI(normalizedFilePath)})\n`);
+                // 使用用户确认的名称
+                editor.replaceSelection(`[${linkTextName}](file:///${encodeURI(normalizedFilePath)})\n`);
                 return;
             }
 
@@ -243,7 +263,8 @@ export default class WebDAVUploaderPlugin extends Plugin {
                 // 转义路径中的特殊字符
                 const encodedPath = cleanRemoteFilePath.split('/').map(encodeURIComponent).join('/');
                 const linkUrl = `${baseUrl}${encodedPath}`;
-                const linkText = `[${file.name}](${linkUrl})`;
+                // 使用用户确认的名称
+                const linkText = `[${linkTextName}](${linkUrl})`;
 
                 const editor = view.editor;
                 editor.replaceSelection(linkText + '\n');
@@ -315,6 +336,73 @@ export default class WebDAVUploaderPlugin extends Plugin {
 
     async saveSettings() {
         await this.saveData(this.settings);
+    }
+}
+
+
+class RenameModal extends Modal {
+    result: string;
+    onSubmit: (result: string) => void;
+    onCancel: () => void;
+    defaultName: string;
+    isHandled: boolean = false;
+
+    constructor(app: App, defaultName: string, onSubmit: (result: string) => void, onCancel: () => void) {
+        super(app);
+        this.defaultName = defaultName;
+        this.onSubmit = onSubmit;
+        this.onCancel = onCancel;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.createEl('h2', { text: '确认链接文字' });
+
+        new Setting(contentEl)
+            .setName('链接显示文字')
+            .setDesc('在笔记中显示的链接名称')
+            .addText(text => text
+                .setValue(this.defaultName)
+                .onChange((value) => {
+                    this.result = value;
+                })
+                .then(t => {
+                    t.inputEl.focus(); // 自动聚焦
+                    t.inputEl.select(); // 全选文本，方便修改
+                    // 支持回车确认
+                    t.inputEl.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            this.isHandled = true;
+                            this.onSubmit(this.result || this.defaultName);
+                            this.close();
+                        }
+                    });
+                }));
+
+        new Setting(contentEl)
+            .addButton(btn => btn
+                .setButtonText('取消')
+                .onClick(() => {
+                    this.isHandled = true;
+                    this.onCancel();
+                    this.close();
+                }))
+            .addButton(btn => btn
+                .setButtonText('确定')
+                .setCta()
+                .onClick(() => {
+                    this.isHandled = true;
+                    this.onSubmit(this.result || this.defaultName);
+                    this.close();
+                }));
+    }
+
+    onClose() {
+        if (!this.isHandled) {
+            this.onCancel();
+        }
+        const { contentEl } = this;
+        contentEl.empty();
     }
 }
 
@@ -392,6 +480,16 @@ class WebDAVUploaderSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.preferExistingLink)
                 .onChange(async (value) => {
                     this.plugin.settings.preferExistingLink = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('拖拽时确认链接文字')
+            .setDesc('拖拽文件时弹出窗口，允许自定义插入笔记本中的链接文字（默认为文件名）')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.enableRenameModal)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableRenameModal = value;
                     await this.plugin.saveSettings();
                 }));
 
